@@ -1,8 +1,15 @@
 dist
 build
 venv
+.venv
 release
 packenv
 .idea
 .vscode
 __pycache__
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+*.log
+.DS_Store

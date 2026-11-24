@@ -17,7 +17,7 @@ class ECWrite:
         os.system("modprobe ec_sys write_support=y")
         if os.path.exists("/sys/kernel/debug/ec/ec0/io"):
             try:
-                self.ec_file = open("/sys/kernel/debug/ec/ec0/io", "wb+")
+                self.ec_file = open("/sys/kernel/debug/ec/ec0/io", "r+b", buffering=0)
                 print("Loaded 'ec_sys' module successfully.")
                 return
             except Exception as e:
@@ -30,7 +30,7 @@ class ECWrite:
 
         os.system("modprobe acpi_ec")
         if os.path.exists("/dev/ec"):
-            self.ec_file = open("/dev/ec", "wb+")
+            self.ec_file = open("/dev/ec", "r+b", buffering=0)
             print("Loaded 'acpi_ec' module successfully.")
         else:
             self._handle_error("Failed to load 'acpi_ec' module.")
@@ -43,6 +43,7 @@ class ECWrite:
                 )
             self.ec_file.seek(address)
             self.ec_file.write(bytearray([value]))
+            self.ec_file.flush()
         except Exception as e:
             self._handle_error(f"Error writing to the EC: {e}")
 

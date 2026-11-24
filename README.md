@@ -1,97 +1,85 @@
-## NitroSense™ "clone" for linux
-### Controls fan speed, gaming modes and undervolting on Linux.
-<img src="https://github.com/user-attachments/assets/6bb2a8e8-4816-4b86-ac8d-e882fb464f15" width="400" />
-<img src="https://github.com/user-attachments/assets/9b91a2f9-94e8-4f72-bb1b-cb8978ae20cd" width="400" />
+# Linux-NitroSense (Acer Nitro 5 AN515-57 — BIOS V1.17)
 
-## Current supported devices:
-- AN515-44
-- AN515-46
-- AN515-53
-- AN515-54
-- AN515-55
-- AN515-56
-- AN515-57
-- AN515-58
-- AN517-55
+Custom fork of [Packss/Linux-NitroSense](https://github.com/Packss/Linux-NitroSense) adapted specifically for **Acer Nitro 5 AN515-57 (BIOS V1.17)** running on Linux (tested on **CachyOS / Arch Linux**, kernel `7.3.5-2-cachyos`, **Intel Core i5-11400H** + **NVIDIA GeForce RTX 3050**).
 
-_[OPTIONAL]_
-- Install ```amdctl``` for undervolt and voltage readings on amd.
-- Install [acer-predator-module](https://github.com/JafarAkhondali/acer-predator-turbo-and-rgb-keyboard-linux-module) for keyboard rgb control
+## Why This Fork Exists
 
-## Binary release:
-- Get the latest binary [here](https://github.com/Packss/Linux-NitroSense/releases/latest)
-- Download ```nitrosense```
-- Execute ```sudo -E ./nitrosense```
-- No dependencies needed
+On the **Nitro AN515-57 (BIOS V1.17)**, writing directly to raw EC registers via `ec_sys` (`0x21`/`0x22`) is immediately overridden back to `Auto` by firmware, and register `0x03` (battery charge limit) differs from older `ECS_AN515_46` mappings.
 
-## Dependencies [Development]:
-* All:
-  ```sh
-  pip install -r requirements.txt
-  ```
+This repository adds a **`linuwu_sense` sysfs/hwmon backend** (`core/linuwu_sysfs.py`) and **Intel undervolting support** (`core/intelctl.py` via `intel-undervolt`), while keeping raw `ECWrite` as a fallback when `linuwu_sense` is not present.
 
-* Ubuntu / Linux Mint:
-  ```sh
-  git clone https://github.com/musikid/acpi_ec/
-  cd acpi_ec
-  sudo ./install.sh
-  modprobe acpi_ec
-  sudo cat /dev/ec #confirm access to EC
-  ```
+---
 
-* Arch Linux:
-  ```sh
-  # amdctl and acpi_ec can be installed via git, or from the AUR
-  paru -Syu amdctl acpi_ec-dkms-git
-  sudo modprobe acpi_ec
-  sudo cat /dev/ec #confirm access to EC
-  ```
+## Tested Hardware & Feature Status (AN515-57 BIOS V1.17)
 
-## Usage:
-### COMMAND LINE
+| Feature | Status | Backend / Notes |
+|---|---|---|
+| **Fan Control (Auto / Manual 0–100% / Max)** | Working | `/sys/devices/platform/acer-wmi/nitro_sense/fan_speed` (`linuwu_sense`) |
+| **Fan RPM & Temps** | Working | `/sys/class/hwmon/hwmon*` (`name == "acer"`). GPU temp shows `0°` when dGPU is in runtime `suspended` (D3 power saving). |
+| **Nitro Modes (Quiet / Default / Extreme / Turbo)** | Working | `/sys/firmware/acpi/platform_profile` (`Quiet`, `Extreme`, and `Turbo` require AC charger plugged in). |
+| **Battery Charge Limit (80%)** | Working | `/sys/devices/platform/acer-wmi/nitro_sense/battery_limiter` |
+| **CPU VCore Voltage Monitoring** | Working | `msr-tools` (`rdmsr 0x198`) |
+| **Intel CPU Undervolt + Disable Button** | Working* | `intel-undervolt` (`0 mV` to `-90 mV` on `CPU` & `CPU Cache`, plus **Disable Undervolt**). *Requires BIOS Overclocking Lock (`MSR 0x194` bit 20) = `0`. |
+| **USB Charging / KB 30s Timeout** | Disabled (Unsupported) | Firmware returns `-1` via WMI on this model; checkboxes are automatically disabled. |
+| **4-Zone RGB Keyboard Tab** | Optional | Automatically hidden unless `/dev/acer-gkbbl-0` and `/dev/acer-gkbbl-static-0` (`acer-predator-module`) exist. |
 
- - ```sudo``` is required in order to access the Super I/O EC registers and apply undervolt offsets.
-  - From the command line run the main script as root:
-    ```sh
-    sudo -E python3 main.py
-    ```
+---
 
-### ICON
- - Alternatively you can copy the .desktop file to your applications folder and launch the program via it's icon.
-  - Open ```nitro-sense.desktop``` in a text editor.
-  - Set ```<path_to_NitroSense>``` to the directory where you downloaded this project.
-    ```sh
-    Exec=sh -c "pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY sh -c 'cd <path_to_NitroSense> && python3 main.py'"
-    Icon=<path_to_NitroSense>/app_icon.ico
-    ```
-  - Copy the file to the application directory
-    ```sh
-    sudo cp nitro-sense.desktop /usr/share/applications/
-    ```
-  - Now launch via the application and on initialization it will prompt for the user password.
+## Requirements (Arch Linux / CachyOS)
 
+1. **Disable Secure Boot** in BIOS (required to load unsigned DKMS kernel modules).
+2. **Kernel Driver for Fan & WMI Control (`linuwu-sense-dkms-git`)** + matching kernel headers (e.g., `linux-cachyos-headers` or `linux-headers`):
+   ```sh
+   paru -S linuwu-sense-dkms-git
+   ```
+   Load the module immediately (or reboot so the installed modprobe blacklist for `acer_wmi` takes effect):
+   ```sh
+   sudo modprobe -r ec_sys acer_wmi 2>/dev/null
+   sudo modprobe linuwu_sense
+   ```
+   Verify the WMI sysfs nodes exist:
+   ```sh
+   ls -la /sys/devices/platform/acer-wmi/nitro_sense/ /sys/firmware/acpi/platform_profile
+   ```
+3. **Intel Voltage Reading & Undervolting (`msr-tools` & `intel-undervolt`)**:
+   ```sh
+   sudo pacman -S msr-tools intel-undervolt
+   ```
+   *(Optional check before undervolting — `0` means unlocked):*
+   ```sh
+   sudo rdmsr 0x194 -f 20:20
+   sudo intel-undervolt read
+   ```
+4. **Python Environment & Dependencies**:
+   ```sh
+   python3 -m venv venv
+   ./venv/bin/pip install -r requirements.txt
+   ```
+5. *(Optional)* **4-Zone RGB Keyboard**: Install [acer-predator-module](https://github.com/JafarAkhondali/acer-predator-turbo-and-rgb-keyboard-linux-module) if your AN515-57 unit has a 4-zone RGB keyboard.
 
-### NVIDIA-POWERD
-- After switching nitro modes \* **YOU MAY NEED TO RESTART NVIDIA-POWERD SERVICE IN ORDER TO DETECT NEW TGP** \*
-  ```sh
-  sudo systemctl restart nvidia-powerd
-  ```
-- You can check the current GPU TGP via
-  ```
-  nvidia-smi
-  ```
+---
 
-Packages:
-* ```Python Qt6``` -> [PyQt6](https://pypi.org/project/PyQt6/)
-* ```acpi_ec``` -> [acpi_ec by musikid](https://github.com/musikid/acpi_ec/)
+## Usage
 
+Run from the repository directory with `sudo -E` (root access is required for writing to `sysfs`, reading DMI/MSR, and running `intel-undervolt`):
 
-##
+```sh
+sudo -E ./venv/bin/python main.py
+```
 
-Hey! I'm an undergraduate student and would be awesome if you could support me!
+### Undervolt Safety Notes
+* Start conservatively (e.g., `-40 mV` or `-50 mV`) and test stability under both idle and load before trying lower offsets.
+* Use the **Disable Undervolt** button (or select `0 mV (Off)`) to immediately reset `CPU` and `CPU Cache` offsets back to `0 mV` and set `enable no` in `/etc/intel-undervolt.conf`.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/R6R71GROZE)
+### NVIDIA GPU Power (`nvidia-powerd`)
+After switching **Nitro Mode** (e.g., to `Extreme` or `Turbo`), you may need to restart `nvidia-powerd` so the updated GPU TGP limit is applied:
+```sh
+sudo systemctl restart nvidia-powerd
+nvidia-smi
+```
 
-I'm doing this project because i wanted something like this to exist, but afaik no other project supports more than one device.
+---
 
-You can also contribute by [opening a PR](https://github.com/Packss/Linux-NitroSense/pulls)!
+## Credits
+* Upstream project: [Packss/Linux-NitroSense](https://github.com/Packss/Linux-NitroSense)
+* Kernel WMI driver: [0x7375646F/Linuwu-Sense](https://github.com/0x7375646F/Linuwu-Sense)
